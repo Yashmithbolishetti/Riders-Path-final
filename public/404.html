@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Riders Path — Student Bike Rental Marketplace</title>
+    <script type="text/javascript">
+      (function() {
+        var l = window.location;
+        var segments = l.pathname.split('/').filter(Boolean);
+        var search = l.search || '';
+        var hash = l.hash ? l.hash.replace(/^#\/?/, '') : '';
+        // If hosted on GitHub Pages user/org subdomain (e.g. username.github.io/repo-name/...)
+        if (l.hostname.endsWith('github.io') && segments.length >= 1) {
+          var repo = segments[0];
+          var route = segments.slice(1).join('/');
+          var suffix = hash ? (route ? route + '&' + hash : hash) : (route || 'home');
+          var target = l.protocol + '//' + l.host + '/' + repo + '/' + search + '#' + suffix;
+          l.replace(target);
+          return;
+        }
+        var routePath = segments.join('/');
+        var finalHash = hash ? (routePath ? routePath + '&' + hash : hash) : (routePath || 'home');
+        var target = l.protocol + '//' + l.host + '/' + search + '#' + finalHash;
+        l.replace(target);
+      })();
+    </script>
+  </head>
+  <body style="background-color: #09090b; color: #f4f4f5; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
+    <div style="text-align: center;">
+      <h2 style="font-weight: 700; margin-bottom: 8px;">Loading Riders Path...</h2>
+      <p style="color: #a1a1aa; font-size: 14px;">Redirecting to campus marketplace</p>
+    </div>
+  </body>
+</html>

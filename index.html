@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Riders Path — Student Bike Rental Marketplace | ICFAI Hyderabad</title>
+    <meta name="description" content="Peer-to-peer student bike rental marketplace for ICFAI Hyderabad students. Verified rides, campus hubs, transparent pricing." />
+    <meta property="og:title" content="Riders Path — Student Bike Rental Marketplace | ICFAI Hyderabad" />
+    <meta property="og:description" content="Peer-to-peer student bike rental marketplace for ICFAI Hyderabad students. Verified rides, campus hubs, transparent pricing." />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      (function () {
+        try {
+          var loc = window.location;
+          var hash = loc.hash || '';
+          var search = loc.search || '';
+          var pathname = loc.pathname || '';
+          var combined = (hash + '&' + search + '&' + pathname).toLowerCase();
+          var hasAuthTokenOrError =
+            combined.indexOf('confirmation_url=') !== -1 ||
+            combined.indexOf('type=recovery') !== -1 ||
+            combined.indexOf('type=signup') !== -1 ||
+            combined.indexOf('type=email') !== -1 ||
+            combined.indexOf('type=email_change') !== -1 ||
+            combined.indexOf('type=invite') !== -1 ||
+            combined.indexOf('flow=signup') !== -1 ||
+            combined.indexOf('flow=recovery') !== -1 ||
+            combined.indexOf('access_token=') !== -1 ||
+            combined.indexOf('token_hash=') !== -1 ||
+            combined.indexOf('token=') !== -1 ||
+            combined.indexOf('code=') !== -1 ||
+            combined.indexOf('error=') !== -1 ||
+            combined.indexOf('error_code=') !== -1;
+
+          if (!hasAuthTokenOrError) {
+            return;
+          }
+
+          var isJwtRecovery = false;
+          var isJwtNonRecovery = false;
+          var tokenMatch = (hash + '&' + search).match(/[?#&]access_token=([^&#]+)/i);
+          if (tokenMatch && tokenMatch[1]) {
+            try {
+              var jwtParts = decodeURIComponent(tokenMatch[1]).trim().split('.');
+              if (jwtParts.length === 3 && typeof window.atob === 'function') {
+                var b64 = jwtParts[1].replace(/-/g, '+').replace(/_/g, '/');
+                while (b64.length % 4 !== 0) {
+                  b64 += '=';
+                }
+                var payload = JSON.parse(window.atob(b64));
+                if (payload && typeof payload === 'object') {
+                  if (Array.isArray(payload.amr)) {
+                    for (var i = 0; i < payload.amr.length; i++) {
+                      var entry = payload.amr[i];
+                      var method =
+                        typeof entry === 'string'
+                          ? entry.toLowerCase()
+                          : entry && entry.method
+                          ? String(entry.method).toLowerCase()
+                          : '';
+                      if (method === 'recovery' || method === 'invite') {
+                        isJwtRecovery = true;
+                        break;
+                      }
+                    }
+                  }
+                  if (!isJwtRecovery) {
+                    isJwtNonRecovery = true;
+                  }
+                }
+              }
+            } catch (e) {}
+          }
+
+          var now = Date.now();
+          var maxFlowAgeMs = 30 * 60 * 1000;
+          var maxClickAgeMs = 5 * 60 * 1000;
+          var pendingFlow = '';
+          var hasPendingVerify = false;
+          var hasPendingReset = false;
+          var verifyAt = 0;
+          var resetAt = 0;
+          var confirmClickedAt = 0;
+
+          try {
+            var sFlow = '';
+            var lFlow = '';
+            var sVerifyAt = 0;
+            var lVerifyAt = 0;
+            var sResetAt = 0;
+            var lResetAt = 0;
+            var sClickAt = 0;
+            var lClickAt = 0;
+
+            if (window.sessionStorage) {
+              sFlow = window.sessionStorage.getItem('rp_pending_auth_flow') || '';
+              sVerifyAt = Number(window.sessionStorage.getItem('rp_pending_verify_at') || '0') || 0;
+              sResetAt = Number(window.sessionStorage.getItem('rp_pending_reset_at') || '0') || 0;
+              sClickAt =
+                Number(window.sessionStorage.getItem('rp_confirm_button_clicked') || '0') || 0;
+              hasPendingVerify = Boolean(window.sessionStorage.getItem('rp_pending_verify_email'));
+              hasPendingReset = Boolean(window.sessionStorage.getItem('rp_pending_reset_email'));
+            }
+            if (window.localStorage) {
+              lFlow = window.localStorage.getItem('rp_pending_auth_flow') || '';
+              lVerifyAt = Number(window.localStorage.getItem('rp_pending_verify_at') || '0') || 0;
+              lResetAt = Number(window.localStorage.getItem('rp_pending_reset_at') || '0') || 0;
+              lClickAt =
+                Number(window.localStorage.getItem('rp_confirm_button_clicked') || '0') || 0;
+              if (!hasPendingVerify) {
+                hasPendingVerify = Boolean(window.localStorage.getItem('rp_pending_verify_email'));
+              }
+              if (!hasPendingReset) {
+                hasPendingReset = Boolean(window.localStorage.getItem('rp_pending_reset_email'));
+              }
+            }
+
+            verifyAt = Math.max(sVerifyAt, lVerifyAt);
+            resetAt = Math.max(sResetAt, lResetAt);
+            confirmClickedAt = Math.max(sClickAt, lClickAt);
+            pendingFlow = sFlow || lFlow;
+          } catch (e) {}
+
+          var isResetExpired = resetAt > 0 && now - resetAt > maxFlowAgeMs;
+          var isVerifyExpired = verifyAt > 0 && now - verifyAt > maxFlowAgeMs;
+
+          if (isResetExpired || (!resetAt && pendingFlow !== 'recovery')) {
+            hasPendingReset = false;
+            if (pendingFlow === 'recovery') {
+              pendingFlow = '';
+            }
+            try {
+              if (window.sessionStorage) {
+                window.sessionStorage.removeItem('rp_pending_reset_email');
+                window.sessionStorage.removeItem('rp_pending_reset_at');
+                if (window.sessionStorage.getItem('rp_pending_auth_flow') === 'recovery') {
+                  window.sessionStorage.removeItem('rp_pending_auth_flow');
+                }
+              }
+              if (window.localStorage) {
+                window.localStorage.removeItem('rp_pending_reset_email');
+                window.localStorage.removeItem('rp_pending_reset_at');
+                if (window.localStorage.getItem('rp_pending_auth_flow') === 'recovery') {
+                  window.localStorage.removeItem('rp_pending_auth_flow');
+                }
+              }
+            } catch (e) {}
+          }
+          if (isVerifyExpired) {
+            hasPendingVerify = false;
+            if (pendingFlow === 'signup') {
+              pendingFlow = '';
+            }
+            try {
+              if (window.sessionStorage) {
+                window.sessionStorage.removeItem('rp_pending_verify_email');
+                window.sessionStorage.removeItem('rp_pending_verify_at');
+                if (window.sessionStorage.getItem('rp_pending_auth_flow') === 'signup') {
+                  window.sessionStorage.removeItem('rp_pending_auth_flow');
+                }
+              }
+              if (window.localStorage) {
+                window.localStorage.removeItem('rp_pending_verify_email');
+                window.localStorage.removeItem('rp_pending_verify_at');
+                if (window.localStorage.getItem('rp_pending_auth_flow') === 'signup') {
+                  window.localStorage.removeItem('rp_pending_auth_flow');
+                }
+              }
+            } catch (e) {}
+          }
+          if (
+            (hasPendingVerify || ( !isVerifyExpired && verifyAt > 0 )) &&
+            (!hasPendingReset || verifyAt >= resetAt)
+          ) {
+            hasPendingReset = false;
+            pendingFlow = 'signup';
+          }
+
+          var hasActiveConfirmClick =
+            confirmClickedAt > 0 && now - confirmClickedAt <= maxClickAgeMs;
+
+          // Strip nested confirmation_url=... before checking outer route/type signals
+          var outerCombined = combined.replace(/confirmation_url=[^ ]*/i, 'confirmation_url=');
+
+          var hasConfirmationUrlParam = combined.indexOf('confirmation_url=') !== -1;
+          var hasExplicitConfirmSignal =
+            hasConfirmationUrlParam ||
+            outerCombined.indexOf('type=signup') !== -1 ||
+            outerCombined.indexOf('type=email') !== -1 ||
+            outerCombined.indexOf('type=email_change') !== -1 ||
+            outerCombined.indexOf('flow=signup') !== -1 ||
+            isJwtNonRecovery;
+
+          var hasExplicitRecoverySignal =
+            !hasConfirmationUrlParam &&
+            (outerCombined.indexOf('type=recovery') !== -1 ||
+              outerCombined.indexOf('type=invite') !== -1 ||
+              outerCombined.indexOf('flow=recovery') !== -1 ||
+              isJwtRecovery);
+
+          var isEmailConfirmation = false;
+          if (hasExplicitConfirmSignal && !hasExplicitRecoverySignal) {
+            isEmailConfirmation = true;
+          } else if (!hasExplicitRecoverySignal) {
+            if (
+              outerCombined.indexOf('confirm-email') !== -1 ||
+              outerCombined.indexOf('verify-email') !== -1 ||
+              hasActiveConfirmClick ||
+              pendingFlow === 'signup' ||
+              hasPendingVerify
+            ) {
+              isEmailConfirmation = true;
+            } else if (pendingFlow !== 'recovery' && !hasPendingReset) {
+              // Untyped auth callbacks (?code= or #error=) without any active recovery evidence
+              // default to email confirmation even if the URL contains reset-password, so expired
+              // or PKCE signup links never land on Reset Password based on route name alone.
+              isEmailConfirmation = true;
+            }
+          }
+
+          var snapshot = {
+            hash: hash,
+            search: search,
+            pathname: pathname,
+            capturedAt: now
+          };
+          var normalizedPath = pathname || '/';
+          if (/\/(reset-password|verify-email|confirm-email)\/?$/i.test(normalizedPath)) {
+            normalizedPath =
+              normalizedPath.replace(/\/(reset-password|verify-email|confirm-email)\/?$/i, '') || '/';
+          }
+
+          if (isEmailConfirmation) {
+            var targetConfirmHash =
+              outerCombined.indexOf('verify-email') !== -1 &&
+              !hasConfirmationUrlParam &&
+              outerCombined.indexOf('confirm-email') === -1
+                ? '#verify-email'
+                : '#confirm-email';
+            window.__RP_INITIAL_CONFIRMATION_URL__ = snapshot;
+            delete window.__RP_INITIAL_RECOVERY_URL__;
+            if (window.sessionStorage) {
+              window.sessionStorage.setItem('rp_initial_confirmation_url', JSON.stringify(snapshot));
+              window.sessionStorage.removeItem('rp_initial_recovery_url');
+              window.sessionStorage.removeItem('rp_recovery_session');
+            }
+            if (window.history && window.history.replaceState) {
+              // Scrub all sensitive query and hash parameters from browser history immediately
+              window.history.replaceState(
+                null,
+                '',
+                normalizedPath + targetConfirmHash
+              );
+            }
+          } else {
+            window.__RP_INITIAL_RECOVERY_URL__ = snapshot;
+            if (window.sessionStorage) {
+              window.sessionStorage.setItem('rp_initial_recovery_url', JSON.stringify(snapshot));
+            }
+            if (window.history && window.history.replaceState) {
+              // Scrub all sensitive query and hash parameters from browser history immediately
+              window.history.replaceState(
+                null,
+                '',
+                normalizedPath + '#reset-password'
+              );
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="bg-[#F7F6F2] text-[#202522] antialiased selection:bg-[#29483B] selection:text-white min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
