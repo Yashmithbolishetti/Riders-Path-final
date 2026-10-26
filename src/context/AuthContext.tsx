@@ -569,16 +569,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await syncBrowserSupabaseSession(res.token, res.refreshToken);
         persistPendingVerify('', null);
         persistPendingReset('', null);
-        // Preserve recent signup flow timestamp so if the user or an email scanner triggers
-        // a duplicate confirmation request seconds later (#error=otp_expired), it still
-        // recognizes the recent signup flow and never falls into password recovery.
-        try {
-          const verifiedNow = String(Date.now());
-          sessionStorage.setItem('rp_pending_auth_flow', 'signup');
-          sessionStorage.setItem('rp_pending_verify_at', verifiedNow);
-          localStorage.setItem('rp_pending_auth_flow', 'signup');
-          localStorage.setItem('rp_pending_verify_at', verifiedNow);
-        } catch {}
         saveConfirmationSession({
           confirmationUrl: null,
           accessToken: res.token,
@@ -631,18 +621,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const requestPasswordReset = async (email: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    persistPendingReset(cleanEmail, null);
     logRecoveryDiagnostic('requestPasswordResetStart', {
       redirectTo: DEFAULT_RECOVERY_REDIRECT_URL,
     });
-    const res = await api.authForgotPassword(email, DEFAULT_RECOVERY_REDIRECT_URL);
-    persistPendingReset(res.email || email, null);
+    const res = await api.authForgotPassword(cleanEmail, DEFAULT_RECOVERY_REDIRECT_URL);
+    persistPendingReset(res.email || cleanEmail, null);
     logRecoveryDiagnostic('requestPasswordResetSuccess', {
       redirectTo: DEFAULT_RECOVERY_REDIRECT_URL,
       emailDeliveryMode: res.emailDeliveryMode,
     });
     showToast('Password reset link sent. Check your email inbox.', 'info');
     return {
-      email: res.email || email,
+      email: res.email || cleanEmail,
       emailDeliveryMode: res.emailDeliveryMode,
     };
   };

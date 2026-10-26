@@ -1066,6 +1066,33 @@ export const api = {
     message: string;
   }> {
     const cleanEmail = email.trim().toLowerCase();
+    const client = getSupabaseBrowserClient();
+    if (client) {
+      const { error } = await client.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo,
+      });
+      if (error) {
+        const lowerMsg = (error.message || '').toLowerCase();
+        if (
+          error.status === 429 ||
+          lowerMsg.includes('rate limit') ||
+          lowerMsg.includes('security purposes') ||
+          lowerMsg.includes('too many')
+        ) {
+          throw new Error(
+            'Please wait a minute before requesting another password reset email.'
+          );
+        }
+        throw new Error(error.message || 'Could not request password reset');
+      }
+      return {
+        success: true,
+        email: cleanEmail,
+        emailDeliveryMode: 'live',
+        message: `If an account is registered with ${cleanEmail}, a password reset link has been sent.`,
+      };
+    }
+
     try {
       const res = await fetch(`${API_BASE}/auth/forgot-password`, {
         method: 'POST',
@@ -1076,22 +1103,6 @@ export const api = {
     } catch (err: any) {
       if (err?.isAppError) {
         throw err;
-      }
-      const client = getSupabaseBrowserClient();
-      if (client) {
-        const { error } = await client.auth.resetPasswordForEmail(cleanEmail, {
-          redirectTo,
-        });
-        if (error) {
-          throw new Error(error.message || 'Could not request password reset');
-        }
-        return {
-          success: true,
-          email: cleanEmail,
-          emailDeliveryMode: 'live',
-          message:
-            'If an account exists for this email address, a password reset link has been sent.',
-        };
       }
       throw new Error(
         err?.message ||
@@ -1113,6 +1124,7 @@ export const api = {
     email: string | null;
   }> {
     const client = getSupabaseBrowserClient();
+    const rawType = (payload.type || '').trim().toLowerCase();
 
     // If a PKCE code was returned in the URL, exchange it once via the browser client first
     let accessToken = payload.accessToken || null;
@@ -1132,12 +1144,17 @@ export const api = {
       }
     }
 
-    if (accessToken && isNonRecoveryJwtAccessToken(accessToken)) {
+    if (
+      rawType === 'signup' ||
+      rawType === 'email' ||
+      rawType === 'email_change' ||
+      (accessToken && isNonRecoveryJwtAccessToken(accessToken))
+    ) {
       saveConfirmationSession({
-        accessToken,
+        accessToken: accessToken || null,
         refreshToken: refreshToken || null,
-        tokenHash: null,
-        code: null,
+        tokenHash: payload.tokenHash || null,
+        code: code || null,
         type: 'signup',
         email: null,
         error: null,
@@ -1149,6 +1166,80 @@ export const api = {
       ) as Error & { isEmailConfirmationRedirect?: boolean };
       redirectErr.isEmailConfirmationRedirect = true;
       throw redirectErr;
+    }
+
+    if (client) {
+      if (payload.tokenHash && !accessToken) {
+        const otpType = payload.type === 'invite' ? 'invite' : 'recovery';
+        const { data, error } = await client.auth.verifyOtp({
+          token_hash: payload.tokenHash,
+          type: otpType,
+        });
+        if (error || !data.session?.access_token) {
+          throw new Error(
+            error?.message ||
+              'This password reset link is invalid or has expired. Please request a new reset email.'
+          );
+        }
+        return {
+          valid: true,
+          accessToken: data.session.access_token,
+          refreshToken: data.session.refresh_token || null,
+          email: data.user?.email || null,
+        };
+      }
+
+      if (accessToken && refreshToken) {
+        const { data, error } = await client.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (error || !data.user) {
+          throw new Error(
+            error?.message ||
+              'This password reset link is invalid or has expired. Please request a new reset email.'
+          );
+        }
+        return {
+          valid: true,
+          accessToken: data.session?.access_token || accessToken,
+          refreshToken: data.session?.refresh_token || refreshToken,
+          email: data.user.email || null,
+        };
+      }
+
+      if (accessToken) {
+        const { data, error } = await client.auth.getUser(accessToken);
+        if (error || !data?.user) {
+          throw new Error(
+            error?.message ||
+              'This password reset link is invalid or has expired. Please request a new reset email.'
+          );
+        }
+        return {
+          valid: true,
+          accessToken,
+          refreshToken: refreshToken || null,
+          email: data.user.email || null,
+        };
+      }
+
+      const { data: sessionData } = await client.auth.getSession();
+      if (sessionData.session?.access_token) {
+        if (isNonRecoveryJwtAccessToken(sessionData.session.access_token)) {
+          const redirectErr = new Error(
+            'This link is an email confirmation link, not a password reset link.'
+          ) as Error & { isEmailConfirmationRedirect?: boolean };
+          redirectErr.isEmailConfirmationRedirect = true;
+          throw redirectErr;
+        }
+        return {
+          valid: true,
+          accessToken: sessionData.session.access_token,
+          refreshToken: sessionData.session.refresh_token || null,
+          email: sessionData.session.user?.email || null,
+        };
+      }
     }
 
     try {
@@ -1180,54 +1271,6 @@ export const api = {
       if (err?.isAppError) {
         throw err;
       }
-      if (client) {
-        if (payload.tokenHash && !accessToken) {
-          const otpType = payload.type === 'invite' ? 'invite' : 'recovery';
-          const { data, error } = await client.auth.verifyOtp({
-            token_hash: payload.tokenHash,
-            type: otpType,
-          });
-          if (error || !data.session?.access_token) {
-            throw new Error(
-              error?.message ||
-                'This password reset link is invalid or has expired. Please request a new reset email.'
-            );
-          }
-          return {
-            valid: true,
-            accessToken: data.session.access_token,
-            refreshToken: data.session.refresh_token || null,
-            email: data.user?.email || null,
-          };
-        }
-        if (accessToken && refreshToken) {
-          const { data, error } = await client.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-          if (error || !data.user) {
-            throw new Error(
-              error?.message ||
-                'This password reset link is invalid or has expired. Please request a new reset email.'
-            );
-          }
-          return {
-            valid: true,
-            accessToken: data.session?.access_token || accessToken,
-            refreshToken: data.session?.refresh_token || refreshToken,
-            email: data.user.email || null,
-          };
-        }
-        const { data: sessionData } = await client.auth.getSession();
-        if (sessionData.session?.access_token) {
-          return {
-            valid: true,
-            accessToken: sessionData.session.access_token,
-            refreshToken: sessionData.session.refresh_token || null,
-            email: sessionData.session.user?.email || null,
-          };
-        }
-      }
       throw new Error(
         err?.message ||
           'This password reset link is invalid or has expired. Please request a new reset email.'
@@ -1245,6 +1288,51 @@ export const api = {
     message: string;
     user?: User;
   }> {
+    const client = getSupabaseBrowserClient();
+    if (client) {
+      if (!payload.accessToken && payload.tokenHash) {
+        const { error: otpErr } = await client.auth.verifyOtp({
+          token_hash: payload.tokenHash,
+          type: 'recovery',
+        });
+        if (otpErr) {
+          throw new Error(
+            otpErr.message ||
+              'This password reset link is invalid or has expired. Please request a new reset email.'
+          );
+        }
+      } else if (payload.accessToken && payload.refreshToken) {
+        const { error: sessionErr } = await client.auth.setSession({
+          access_token: payload.accessToken,
+          refresh_token: payload.refreshToken,
+        });
+        if (sessionErr) {
+          throw new Error(
+            sessionErr.message ||
+              'This password reset link is invalid or has expired. Please request a new reset email.'
+          );
+        }
+      }
+
+      const { data: sessionCheck } = await client.auth.getSession();
+      if (sessionCheck?.session?.access_token) {
+        const { error: updateErr } = await client.auth.updateUser({
+          password: payload.newPassword,
+        });
+        if (updateErr) {
+          const lowerErr = (updateErr.message || '').toLowerCase();
+          if (lowerErr.includes('different') || lowerErr.includes('same_password')) {
+            throw new Error('New password must be different from your current password.');
+          }
+          throw new Error(updateErr.message || 'Password reset failed');
+        }
+        return {
+          success: true,
+          message: 'Your password has been reset successfully. You can now sign in with your new password.',
+        };
+      }
+    }
+
     try {
       const res = await fetch(`${API_BASE}/auth/reset-password`, {
         method: 'POST',
@@ -1260,25 +1348,6 @@ export const api = {
     } catch (err: any) {
       if (err?.isAppError) {
         throw err;
-      }
-      const client = getSupabaseBrowserClient();
-      if (client) {
-        if (payload.accessToken && payload.refreshToken) {
-          await client.auth.setSession({
-            access_token: payload.accessToken,
-            refresh_token: payload.refreshToken,
-          });
-        }
-        const { error } = await client.auth.updateUser({
-          password: payload.newPassword,
-        });
-        if (error) {
-          throw new Error(error.message || 'Password reset failed');
-        }
-        return {
-          success: true,
-          message: 'Your password has been reset successfully. You can now sign in.',
-        };
       }
       throw new Error(
         err?.message ||

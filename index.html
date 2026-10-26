@@ -40,7 +40,6 @@
           }
 
           var isJwtRecovery = false;
-          var isJwtNonRecovery = false;
           var tokenMatch = (hash + '&' + search).match(/[?#&]access_token=([^&#]+)/i);
           if (tokenMatch && tokenMatch[1]) {
             try {
@@ -51,24 +50,19 @@
                   b64 += '=';
                 }
                 var payload = JSON.parse(window.atob(b64));
-                if (payload && typeof payload === 'object') {
-                  if (Array.isArray(payload.amr)) {
-                    for (var i = 0; i < payload.amr.length; i++) {
-                      var entry = payload.amr[i];
-                      var method =
-                        typeof entry === 'string'
-                          ? entry.toLowerCase()
-                          : entry && entry.method
-                          ? String(entry.method).toLowerCase()
-                          : '';
-                      if (method === 'recovery' || method === 'invite') {
-                        isJwtRecovery = true;
-                        break;
-                      }
+                if (payload && typeof payload === 'object' && Array.isArray(payload.amr)) {
+                  for (var i = 0; i < payload.amr.length; i++) {
+                    var entry = payload.amr[i];
+                    var method =
+                      typeof entry === 'string'
+                        ? entry.toLowerCase()
+                        : entry && entry.method
+                        ? String(entry.method).toLowerCase()
+                        : '';
+                    if (method === 'recovery' || method === 'invite') {
+                      isJwtRecovery = true;
+                      break;
                     }
-                  }
-                  if (!isJwtRecovery) {
-                    isJwtNonRecovery = true;
                   }
                 }
               }
@@ -81,6 +75,7 @@
           var pendingFlow = '';
           var hasPendingVerify = false;
           var hasPendingReset = false;
+          var hasPkceRecoveryVerifier = false;
           var verifyAt = 0;
           var resetAt = 0;
           var confirmClickedAt = 0;
@@ -115,6 +110,16 @@
               }
               if (!hasPendingReset) {
                 hasPendingReset = Boolean(window.localStorage.getItem('rp_pending_reset_email'));
+              }
+              for (var k = 0; k < window.localStorage.length; k++) {
+                var storageKey = window.localStorage.key(k) || '';
+                if (storageKey.indexOf('code-verifier') !== -1) {
+                  var verifierVal = window.localStorage.getItem(storageKey) || '';
+                  if (verifierVal.indexOf('/PASSWORD_RECOVERY') !== -1) {
+                    hasPkceRecoveryVerifier = true;
+                    break;
+                  }
+                }
               }
             }
 
@@ -172,11 +177,17 @@
             } catch (e) {}
           }
           if (
-            (hasPendingVerify || ( !isVerifyExpired && verifyAt > 0 )) &&
+            (hasPendingVerify || (!isVerifyExpired && verifyAt > 0)) &&
             (!hasPendingReset || verifyAt >= resetAt)
           ) {
             hasPendingReset = false;
             pendingFlow = 'signup';
+          } else if (
+            (hasPendingReset || (!isResetExpired && resetAt > 0)) &&
+            resetAt > verifyAt
+          ) {
+            hasPendingVerify = false;
+            pendingFlow = 'recovery';
           }
 
           var hasActiveConfirmClick =
@@ -191,32 +202,44 @@
             outerCombined.indexOf('type=signup') !== -1 ||
             outerCombined.indexOf('type=email') !== -1 ||
             outerCombined.indexOf('type=email_change') !== -1 ||
-            outerCombined.indexOf('flow=signup') !== -1 ||
-            isJwtNonRecovery;
+            outerCombined.indexOf('flow=signup') !== -1;
 
           var hasExplicitRecoverySignal =
             !hasConfirmationUrlParam &&
+            !hasExplicitConfirmSignal &&
             (outerCombined.indexOf('type=recovery') !== -1 ||
               outerCombined.indexOf('type=invite') !== -1 ||
               outerCombined.indexOf('flow=recovery') !== -1 ||
-              isJwtRecovery);
+              isJwtRecovery ||
+              hasPkceRecoveryVerifier);
+
+          var isDirectConfirmOrVerifyRoute =
+            outerCombined.indexOf('confirm-email') !== -1 ||
+            outerCombined.indexOf('verify-email') !== -1;
+          var isDirectResetPasswordRoute =
+            !isDirectConfirmOrVerifyRoute &&
+            outerCombined.indexOf('reset-password') !== -1;
 
           var isEmailConfirmation = false;
           if (hasExplicitConfirmSignal && !hasExplicitRecoverySignal) {
             isEmailConfirmation = true;
           } else if (!hasExplicitRecoverySignal) {
             if (
-              outerCombined.indexOf('confirm-email') !== -1 ||
-              outerCombined.indexOf('verify-email') !== -1 ||
+              isDirectConfirmOrVerifyRoute ||
               hasActiveConfirmClick ||
               pendingFlow === 'signup' ||
               hasPendingVerify
             ) {
               isEmailConfirmation = true;
-            } else if (pendingFlow !== 'recovery' && !hasPendingReset) {
-              // Untyped auth callbacks (?code= or #error=) without any active recovery evidence
-              // default to email confirmation even if the URL contains reset-password, so expired
-              // or PKCE signup links never land on Reset Password based on route name alone.
+            } else if (
+              isDirectResetPasswordRoute ||
+              pendingFlow === 'recovery' ||
+              hasPendingReset
+            ) {
+              isEmailConfirmation = false;
+            } else {
+              // Untyped auth callbacks (?code= or #error=) on root '/' without recovery evidence
+              // default to email confirmation so expired or PKCE signup links land on Confirm Email.
               isEmailConfirmation = true;
             }
           }

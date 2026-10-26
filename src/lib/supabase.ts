@@ -22,8 +22,9 @@ export const supabaseAnonKey = String(
 
 export const isSupabaseBrowserConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
-export const DEFAULT_RECOVERY_REDIRECT_URL = 'https://ridersspath.ai.studio/#reset-password';
-export const DEFAULT_EMAIL_CONFIRMATION_REDIRECT_URL = 'https://ridersspath.ai.studio/#confirm-email';
+export const DEFAULT_PRODUCTION_ORIGIN = 'https://riderspath.vercel.app';
+export const DEFAULT_RECOVERY_REDIRECT_URL = 'https://riderspath.vercel.app/reset-password';
+export const DEFAULT_EMAIL_CONFIRMATION_REDIRECT_URL = 'https://riderspath.vercel.app/#confirm-email';
 export const RECOVERY_SESSION_STORAGE_KEY = 'rp_recovery_session';
 export const INITIAL_RECOVERY_URL_STORAGE_KEY = 'rp_initial_recovery_url';
 export const CONFIRMATION_SESSION_STORAGE_KEY = 'rp_confirmation_session';
@@ -356,14 +357,30 @@ export function isRecoveryAccessToken(accessToken?: string | null): boolean {
 
 /**
  * Checks whether a token is a valid decoded JWT whose `amr` claim explicitly indicates
- * a non-recovery authentication method (e.g., `otp` from signup confirmation or `password`).
+ * a standard non-recovery, non-OTP authentication method (e.g., `password` or `oauth`).
+ * Note: Supabase GoTrue issues `method: "otp"` for BOTH email confirmation and password
+ * recovery tokens, so `method: "otp"` must never be treated as proof of a non-recovery token.
  */
 export function isNonRecoveryJwtAccessToken(accessToken?: string | null): boolean {
   const payload = decodeJwtPayload(accessToken);
   if (!payload) {
     return false;
   }
-  return !isRecoveryAccessToken(accessToken);
+  if (isRecoveryAccessToken(accessToken)) {
+    return false;
+  }
+  if (Array.isArray(payload.amr) && payload.amr.length > 0) {
+    return payload.amr.some((entry: any) => {
+      const method =
+        typeof entry === 'string'
+          ? entry.toLowerCase()
+          : entry && typeof entry === 'object'
+          ? String(entry.method || '').toLowerCase()
+          : '';
+      return method === 'password' || method === 'oauth' || method === 'sso';
+    });
+  }
+  return false;
 }
 
 /**
@@ -649,6 +666,7 @@ function extractUrlCallbackParams(
   let pendingFlow = '';
   let hasPendingVerifyEmail = false;
   let hasPendingResetEmail = false;
+  let hasPkceRecoveryVerifier = false;
   let verifyAt = 0;
   let resetAt = 0;
   let confirmClickedAt = 0;
@@ -684,6 +702,18 @@ function extractUrlCallbackParams(
         }
         if (!hasPendingResetEmail) {
           hasPendingResetEmail = Boolean(window.localStorage.getItem('rp_pending_reset_email'));
+        }
+        if (typeof window.localStorage.length === 'number' && typeof window.localStorage.key === 'function') {
+          for (let k = 0; k < window.localStorage.length; k++) {
+            const storageKey = window.localStorage.key(k) || '';
+            if (storageKey.includes('code-verifier')) {
+              const verifierVal = window.localStorage.getItem(storageKey) || '';
+              if (verifierVal.includes('/PASSWORD_RECOVERY')) {
+                hasPkceRecoveryVerifier = true;
+                break;
+              }
+            }
+          }
         }
       }
 
@@ -757,6 +787,12 @@ function extractUrlCallbackParams(
   ) {
     hasPendingResetEmail = false;
     pendingFlow = 'signup';
+  } else if (
+    (hasPendingResetEmail || (!isResetExpired && resetAt > 0)) &&
+    resetAt > verifyAt
+  ) {
+    hasPendingVerifyEmail = false;
+    pendingFlow = 'recovery';
   }
 
   const hasActiveConfirmClick =
@@ -769,7 +805,8 @@ function extractUrlCallbackParams(
   const hasPendingResetInStorage =
     !hasActiveConfirmClick &&
     !isResetExpired &&
-    (pendingFlow === 'recovery' ||
+    (hasPkceRecoveryVerifier ||
+      pendingFlow === 'recovery' ||
       (hasPendingResetEmail && pendingFlow !== 'signup' && !hasPendingVerifyEmail));
 
   let isConfirmationCallback = false;
@@ -777,24 +814,24 @@ function extractUrlCallbackParams(
 
   if (hasAnyAuthParam) {
     if (!isExplicitRecoveryType && !jwtIsRecovery && (isExplicitConfirmType || jwtIsNonRecovery)) {
-      // Explicit signup/email confirmation signal, confirmation_url, or non-recovery JWT ALWAYS wins,
+      // Explicit signup/email confirmation signal, confirmation_url, or password/oauth JWT ALWAYS wins,
       // even if Supabase Site URL, current route, or stale storage contains reset-password/recovery.
       isConfirmationCallback = true;
     } else if (
       !isExplicitConfirmType &&
       !jwtIsNonRecovery &&
-      (isExplicitRecoveryType || jwtIsRecovery)
+      (isExplicitRecoveryType || jwtIsRecovery || hasPkceRecoveryVerifier)
     ) {
       isRecoveryCallback = true;
     } else if (isDirectVerifyRoute || hasPendingVerifyInStorage) {
       isConfirmationCallback = true;
-    } else if (hasPendingResetInStorage) {
-      // Untyped callbacks (?code= or #error=) are only classified as recovery when supported
-      // by active pending-recovery storage evidence—never by route name (#reset-password) alone.
+    } else if (isDirectResetRoute || hasPendingResetInStorage) {
+      // Callbacks landing on the dedicated /reset-password or #reset-password route (e.g. PKCE ?code=
+      // or expired recovery link) without any conflicting signup confirmation signal route to recovery.
       isRecoveryCallback = true;
     } else {
-      // Untyped auth callback (?code= or #error=) without active recovery evidence defaults to
-      // email confirmation even if the URL contains /reset-password or #reset-password.
+      // Untyped auth callback (?code= or #error=) on root '/' without recovery evidence defaults to
+      // email confirmation.
       isConfirmationCallback = true;
     }
   }

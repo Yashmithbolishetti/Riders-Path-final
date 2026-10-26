@@ -38,11 +38,11 @@ function createMockJwt(payload: Record<string, unknown>): string {
   return `${header}.${body}.signature`;
 }
 
-test('DEFAULT_RECOVERY_REDIRECT_URL and DEFAULT_EMAIL_CONFIRMATION_REDIRECT_URL point to dedicated hash callback routes', () => {
-  assert.equal(DEFAULT_RECOVERY_REDIRECT_URL, 'https://ridersspath.ai.studio/#reset-password');
+test('DEFAULT_RECOVERY_REDIRECT_URL and DEFAULT_EMAIL_CONFIRMATION_REDIRECT_URL point to dedicated production callback routes', () => {
+  assert.equal(DEFAULT_RECOVERY_REDIRECT_URL, 'https://riderspath.vercel.app/reset-password');
   assert.equal(
     DEFAULT_EMAIL_CONFIRMATION_REDIRECT_URL,
-    'https://ridersspath.ai.studio/#confirm-email'
+    'https://riderspath.vercel.app/#confirm-email'
   );
 });
 
@@ -687,7 +687,7 @@ test('REGRESSION: unencoded and percent-encoded confirmation_url on #confirm-ema
   assert.equal(recoveryState.isResetPasswordRoute, false);
 
   const encodedVerifyUrl = encodeURIComponent(
-    'https://exampleproject.supabase.co/auth/v1/verify?token=pkce_encoded_456&type=signup&redirect_to=https://ridersspath.ai.studio/#confirm-email'
+    'https://exampleproject.supabase.co/auth/v1/verify?token=pkce_encoded_456&type=signup&redirect_to=https://riderspath.vercel.app/#confirm-email'
   );
   const encodedState = parseEmailConfirmationUrl(
     {
@@ -701,7 +701,7 @@ test('REGRESSION: unencoded and percent-encoded confirmation_url on #confirm-ema
   assert.equal(encodedState.isConfirmEmailRoute, true);
   assert.equal(
     encodedState.confirmationUrl,
-    'https://exampleproject.supabase.co/auth/v1/verify?token=pkce_encoded_456&type=signup&redirect_to=https%3A%2F%2Fridersspath.ai.studio%2F%23confirm-email'
+    'https://exampleproject.supabase.co/auth/v1/verify?token=pkce_encoded_456&type=signup&redirect_to=https%3A%2F%2Friderspath.vercel.app%2F%23confirm-email'
   );
 });
 
@@ -854,37 +854,66 @@ test('REGRESSION: sanitizeRecoveryLogDetails redacts confirmation_url and /auth/
   assert.equal(serialized.includes('secret789'), false);
 });
 
-test('REGRESSION: expired callback and untyped PKCE callback with reset-password marker and NO recovery evidence do NOT enter password recovery', () => {
+test('REGRESSION: real 3-part Supabase recovery JWTs with amr=[{method:"otp"}] and /reset-password callbacks route to ResetPasswordPage and NEVER to #confirm-email', () => {
   clearConfirmationSession();
   clearRecoverySession();
 
-  // Case 1: Expired callback on #reset-password with no type and no pending-recovery storage
-  const expiredLoc = {
+  // Real Supabase GoTrue recovery JWTs contain amr: [{ method: "otp", timestamp: ... }]
+  const realSupabaseOtpRecoveryJwt = createMockJwt({
+    sub: 'user-rec-999',
+    email: 'student@icfai.edu',
+    amr: [{ method: 'otp', timestamp: 1710000000 }],
+  });
+
+  // 1. Implicit recovery callback on /reset-password (#access_token=<3-part-jwt>&type=recovery)
+  const implicitOnResetPath = {
     pathname: '/reset-password',
     search: '',
-    hash: '#reset-password#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired',
+    hash: `#access_token=${realSupabaseOtpRecoveryJwt}&refresh_token=rec-ref-999&expires_in=3600&token_type=bearer&type=recovery`,
   };
-  const expiredConfirm = parseEmailConfirmationUrl(expiredLoc);
-  const expiredRecovery = parsePasswordRecoveryUrl(expiredLoc);
+  assert.equal(isNonRecoveryJwtAccessToken(realSupabaseOtpRecoveryJwt), false);
+  assert.equal(parseEmailConfirmationUrl(implicitOnResetPath).isConfirmationCallback, false);
+  const recState1 = parsePasswordRecoveryUrl(implicitOnResetPath);
+  assert.equal(recState1.isRecoveryCallback, true);
+  assert.equal(recState1.isResetPasswordRoute, true);
+  assert.equal(recState1.accessToken, realSupabaseOtpRecoveryJwt);
 
-  assert.equal(expiredConfirm.isConfirmationCallback, true);
-  assert.equal(expiredConfirm.errorCode, 'otp_expired');
-  assert.equal(expiredRecovery.isRecoveryCallback, false);
-  assert.equal(expiredRecovery.isResetPasswordRoute, false);
+  // 2. Implicit recovery callback when Supabase falls back to root Site URL (/#access_token=<3-part-jwt>&type=recovery)
+  const implicitOnRootPath = {
+    pathname: '/',
+    search: '',
+    hash: `#access_token=${realSupabaseOtpRecoveryJwt}&refresh_token=rec-ref-999&expires_in=3600&token_type=bearer&type=recovery`,
+  };
+  assert.equal(parseEmailConfirmationUrl(implicitOnRootPath).isConfirmationCallback, false);
+  const recState2 = captureCurrentRecoveryUrlState(implicitOnRootPath);
+  assert.equal(recState2.isRecoveryCallback, true);
+  assert.equal(recState2.isResetPasswordRoute, true);
+  assert.equal(recState2.accessToken, realSupabaseOtpRecoveryJwt);
+  clearRecoverySession();
 
-  // Case 2: Untyped PKCE callback (?code=...) with reset-password marker and no recovery evidence
-  const pkceLoc = {
+  // 3. PKCE callback on dedicated /reset-password route (/reset-password?code=...)
+  const pkceOnResetPath = {
     pathname: '/reset-password',
-    search: '?code=untyped-pkce-code-777',
-    hash: '#reset-password',
+    search: '?code=pkce-recovery-code-777',
+    hash: '',
   };
-  const pkceConfirm = parseEmailConfirmationUrl(pkceLoc);
-  const pkceRecovery = parsePasswordRecoveryUrl(pkceLoc);
+  assert.equal(parseEmailConfirmationUrl(pkceOnResetPath).isConfirmationCallback, false);
+  const recState3 = parsePasswordRecoveryUrl(pkceOnResetPath);
+  assert.equal(recState3.isRecoveryCallback, true);
+  assert.equal(recState3.isResetPasswordRoute, true);
+  assert.equal(recState3.code, 'pkce-recovery-code-777');
 
-  assert.equal(pkceConfirm.isConfirmationCallback, true);
-  assert.equal(pkceConfirm.code, 'untyped-pkce-code-777');
-  assert.equal(pkceRecovery.isRecoveryCallback, false);
-  assert.equal(pkceRecovery.isResetPasswordRoute, false);
+  // 4. Expired recovery link on dedicated /reset-password route (/reset-password#error=access_denied&error_code=otp_expired)
+  const expiredOnResetPath = {
+    pathname: '/reset-password',
+    search: '',
+    hash: '#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired',
+  };
+  assert.equal(parseEmailConfirmationUrl(expiredOnResetPath).isConfirmationCallback, false);
+  const recState4 = parsePasswordRecoveryUrl(expiredOnResetPath);
+  assert.equal(recState4.isRecoveryCallback, true);
+  assert.equal(recState4.isResetPasswordRoute, true);
+  assert.equal(recState4.errorCode, 'otp_expired');
 });
 
 test('REGRESSION: explicit signup callback with stale pending-recovery storage always follows email confirmation', () => {
@@ -1000,9 +1029,9 @@ test('REGRESSION: email_change callbacks route to confirmation and expired local
 
   (globalThis as any).window = {
     location: {
-      pathname: '/reset-password',
+      pathname: '/',
       search: '',
-      hash: '#reset-password#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired',
+      hash: '#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired',
     },
     sessionStorage: {
       getItem: (k: string) => mockSessionStorage.get(k) ?? null,

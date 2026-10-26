@@ -69,6 +69,7 @@ export function createSupabaseServerClient(accessToken?: string): SupabaseClient
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,
+      flowType: 'implicit',
     },
     global: cleanToken
       ? {
@@ -397,14 +398,14 @@ export async function verifySupabaseAdminBearerToken(
  */
 export async function dispatchSupabaseAdminSetupEmail(
   email: string,
-  redirectToUrl = 'https://ridersspath.ai.studio'
+  redirectToUrl = 'https://riderspath.vercel.app/reset-password'
 ): Promise<{
   sent: boolean;
   deliveryMethod: 'supabase_invite' | 'supabase_recovery';
   error?: string;
 }> {
   const cleanEmail = (email || '').trim().toLowerCase();
-  const cleanRedirect = (redirectToUrl || 'https://ridersspath.ai.studio').trim();
+  const cleanRedirect = (redirectToUrl || 'https://riderspath.vercel.app/reset-password').trim();
 
   const privClient = getSupabaseServiceClient();
   if (privClient) {

@@ -269,7 +269,7 @@ app.put('/api/config', requireAdmin, (req, res) => {
 });
 
 // 3. Admin Authentication, Initial Super-Admin Bootstrap & Admin Management
-const DEFAULT_ADMIN_SETUP_REDIRECT_URL = 'https://ridersspath.ai.studio';
+const DEFAULT_ADMIN_SETUP_REDIRECT_URL = 'https://riderspath.vercel.app/reset-password';
 
 function resolveSafeAdminRedirectUrl(rawRedirectTo?: unknown): string {
   const candidate = typeof rawRedirectTo === 'string' ? rawRedirectTo.trim() : '';
@@ -277,6 +277,7 @@ function resolveSafeAdminRedirectUrl(rawRedirectTo?: unknown): string {
   try {
     const parsed = new URL(candidate);
     const isAllowed =
+      parsed.origin === 'https://riderspath.vercel.app' ||
       parsed.origin === 'https://ridersspath.ai.studio' ||
       parsed.hostname === 'localhost' ||
       parsed.hostname === '127.0.0.1';
@@ -946,7 +947,7 @@ app.post('/api/auth/signup', async (req, res) => {
     process.env.EMAIL_CONFIRMATION_REDIRECT_URL ||
     process.env.APP_URL ||
     process.env.VITE_APP_URL ||
-    'https://ridersspath.ai.studio/#confirm-email'
+    'https://riderspath.vercel.app/#confirm-email'
   ).trim();
   const configuredRedirectUrl =
     baseConfirmationRedirectUrl.includes('#') ||
@@ -1282,7 +1283,7 @@ app.post('/api/auth/resend-verification', async (req, res) => {
     process.env.EMAIL_CONFIRMATION_REDIRECT_URL ||
     process.env.APP_URL ||
     process.env.VITE_APP_URL ||
-    'https://ridersspath.ai.studio/#confirm-email'
+    'https://riderspath.vercel.app/#confirm-email'
   ).trim();
   const configuredRedirectUrl =
     baseConfirmationRedirectUrl.includes('#') ||
@@ -1443,7 +1444,7 @@ app.post('/api/auth/login', async (req, res) => {
   });
 });
 
-const DEFAULT_PASSWORD_RESET_REDIRECT_URL = 'https://ridersspath.ai.studio/#reset-password';
+const DEFAULT_PASSWORD_RESET_REDIRECT_URL = 'https://riderspath.vercel.app/reset-password';
 
 function isServerNonRecoveryJwt(accessToken?: string | null): boolean {
   if (!accessToken || typeof accessToken !== 'string') return false;
@@ -1452,7 +1453,7 @@ function isServerNonRecoveryJwt(accessToken?: string | null): boolean {
   try {
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
     if (!payload || typeof payload !== 'object') return false;
-    if (Array.isArray(payload.amr)) {
+    if (Array.isArray(payload.amr) && payload.amr.length > 0) {
       const hasRecovery = payload.amr.some(
         (entry: any) =>
           entry === 'recovery' ||
@@ -1462,7 +1463,16 @@ function isServerNonRecoveryJwt(accessToken?: string | null): boolean {
             (String(entry.method || '').toLowerCase() === 'recovery' ||
               String(entry.method || '').toLowerCase() === 'invite'))
       );
-      return !hasRecovery;
+      if (hasRecovery) return false;
+      return payload.amr.some((entry: any) => {
+        const method =
+          typeof entry === 'string'
+            ? entry.toLowerCase()
+            : entry && typeof entry === 'object'
+            ? String(entry.method || '').toLowerCase()
+            : '';
+        return method === 'password' || method === 'oauth' || method === 'sso';
+      });
     }
     return false;
   } catch {
@@ -1497,7 +1507,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   const resolvedRedirectTo = baseRecoveryRedirectTo.includes('#') ||
     /\/reset-password\/?$/i.test(baseRecoveryRedirectTo)
     ? baseRecoveryRedirectTo
-    : `${baseRecoveryRedirectTo.replace(/\/+$/, '')}/#reset-password`;
+    : `${baseRecoveryRedirectTo.replace(/\/+$/, '')}/reset-password`;
 
   logServerRecoveryDiagnostic('forgotPasswordRequested', {
     redirectTo: resolvedRedirectTo,
